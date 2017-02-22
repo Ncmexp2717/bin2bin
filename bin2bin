@@ -1,0 +1,192 @@
+#!/bin/sh
+#\
+exec tclsh "$0" ${1+"$@"}
+#@(#) bin2bin Ver.1.1 - convert endianness of SCFOUT files.
+#@(#) Copyright (C), 2016, Naoya Yamaguchi.
+#@(#)
+#@(#) Log:
+#@(#)    2016/03/17 Ver.1.0 Released by Naoya Yamaguchi.
+#@(#)    2017/02/22 Ver.1.1 Released by Naoya Yamaguchi.
+#@(#)                 (renaming 'bin2bin.tcl' 'bin2bin')
+#@(#)
+#@(#) Usage:
+#@(#)    (Automatic mode)
+#@(#)    ./bin2bin (SCFOUT file)
+#@(#)
+#@(#)    (Manual mode: from big-endian to little-endian)
+#@(#)    ./bin2bin (SCFOUT file) b
+#@(#)
+#@(#)    (Manual mode: from little-endian to big-endian)
+#@(#)    ./bin2bin (SCFOUT file) l
+#@(#)
+#@(#) Description:
+#@(#)    This script is a tool to convert the byte order (endianness).
+#@(#)
+
+proc bin2bin {fp typep num format_src fp_new} {
+  global val
+  upvar $typep type
+  if {$format_src eq "l_format"} {
+    set format b_format
+  } else {
+    set format l_format
+  }
+  set data [read $fp [expr {$type(size) * $num}]]
+  binary scan $data $type($format_src)$num val
+  if {$typep ne "char"} {
+    set data [binary format $type($format)$num $val]
+  } else {
+    set data [binary format "A$num" $val]
+  }
+  puts -nonewline $fp_new $data
+}
+
+proc b2bMain {fname format} {
+  global val
+  if {[info patchlevel]<8.5} {
+    exit 1
+  }
+  if {$format eq "b"} {
+    set extension _l
+  } else {
+    set extension _b
+  }
+  set fp [open $fname r]
+  set fp_new [open $fname$extension w]
+  fconfigure $fp -translation binary
+  fconfigure $fp_new -translation binary
+  append format _format
+  array set int {size 4 l_format i b_format I}
+  array set double {size 8 l_format q b_format Q}
+  array set char {size 1 l_format a b_format a}
+  bin2bin $fp int 6 $format $fp_new
+  set atomnum [lindex $val 0]
+  set SpinP_switch [lindex $val 1]
+  if {$SpinP_switch>3 || $SpinP_switch<0} {
+    return 1
+  }
+  set TCpyCell [lindex $val 5]
+  bin2bin $fp double [expr {($TCpyCell + 1) * 4}] $format $fp_new ;#atv
+  bin2bin $fp int [expr {($TCpyCell + 1) * 4}] $format $fp_new ;#atv_ijk
+  bin2bin $fp int $atomnum $format $fp_new ;#Total_NumOrbs
+  set Total_NumOrbs $val
+  bin2bin $fp int $atomnum $format $fp_new ;#FNAN
+  set FNAN $val
+  set natn ""
+  foreach fnan $FNAN {
+    bin2bin $fp int [expr {$fnan + 1}] $format $fp_new ;#natn
+    lappend natn $val
+  }
+  foreach fnan $FNAN {
+    bin2bin $fp int [expr {$fnan + 1}] $format $fp_new ;#ncn
+  }
+  bin2bin $fp double 12 $format $fp_new ;#tv
+  bin2bin $fp double 12 $format $fp_new ;#rtv
+  bin2bin $fp double [expr {$atomnum * 4}] $format $fp_new ;#Gxyz
+  for {set spin 0} {$spin <= $SpinP_switch} {incr spin} {
+    for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+      set TNO1 [lindex $Total_NumOrbs $ct_AN]
+      set fnan [lindex $FNAN $ct_AN]
+      for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+	set Gh_AN [lindex $natn $ct_AN $h_AN]
+	set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+	for {set i 0} {$i < $TNO1} {incr i} {
+	  bin2bin $fp double $TNO2 $format $fp_new ;#Hk
+	}
+      }
+    }
+  }
+  if {$SpinP_switch == 3} {
+    for {set spin 0} {$spin < 3} {incr spin} {
+      for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+	set TNO1 [lindex $Total_NumOrbs $ct_AN]
+	set fnan [lindex $FNAN $ct_AN]
+	for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+	  set Gh_AN [lindex $natn $ct_AN $h_AN]
+	  set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+	  for {set i 0} {$i < $TNO1} {incr i} {
+	    bin2bin $fp double $TNO2 $format $fp_new ;#iHk
+	  }
+	}
+      }
+    }
+  }
+  for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+    set TNO1 [lindex $Total_NumOrbs $ct_AN]
+    set fnan [lindex $FNAN $ct_AN]
+    for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+      set Gh_AN [lindex $natn $ct_AN $h_AN]
+      set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+      for {set i 0} {$i < $TNO1} {incr i} {
+	bin2bin $fp double $TNO2 $format $fp_new ;#OLP
+      }
+    }
+  }
+  for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+    set TNO1 [lindex $Total_NumOrbs $ct_AN]
+    set fnan [lindex $FNAN $ct_AN]
+    for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+      set Gh_AN [lindex $natn $ct_AN $h_AN]
+      set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+      for {set i 0} {$i < $TNO1} {incr i} {
+	bin2bin $fp double $TNO2 $format $fp_new ;#OLPpox
+      }
+    }
+  }
+  for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+    set TNO1 [lindex $Total_NumOrbs $ct_AN]
+    set fnan [lindex $FNAN $ct_AN]
+    for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+      set Gh_AN [lindex $natn $ct_AN $h_AN]
+      set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+      for {set i 0} {$i < $TNO1} {incr i} {
+	bin2bin $fp double $TNO2 $format $fp_new ;#OLPpoy
+      }
+    }
+  }
+  for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+    set TNO1 [lindex $Total_NumOrbs $ct_AN]
+    set fnan [lindex $FNAN $ct_AN]
+    for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+      set Gh_AN [lindex $natn $ct_AN $h_AN]
+      set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+      for {set i 0} {$i < $TNO1} {incr i} {
+	bin2bin $fp double $TNO2 $format $fp_new ;#OLPpoz
+      }
+    }
+  }
+  for {set spin 0} {$spin <= $SpinP_switch} {incr spin} {
+    for {set ct_AN 0} {$ct_AN < $atomnum} {incr ct_AN} {
+      set TNO1 [lindex $Total_NumOrbs $ct_AN]
+      set fnan [lindex $FNAN $ct_AN]
+      for {set h_AN 0} {$h_AN <= $fnan} {incr h_AN} {
+	set Gh_AN [lindex $natn $ct_AN $h_AN]
+	set TNO2 [lindex $Total_NumOrbs [expr {$Gh_AN - 1}]]
+	for {set i 0} {$i < $TNO1} {incr i} {
+	  bin2bin $fp double $TNO2 $format $fp_new ;#DM
+	}
+      }
+    }
+  }
+  bin2bin $fp int 1 $format $fp_new ;#Solver
+  bin2bin $fp double 10 $format $fp_new
+  bin2bin $fp int 1 $format $fp_new
+  set num_lines $val
+  set MAX_LINE_SIZE 256
+  for {set i 0} {$i < $num_lines} {incr i} {
+    bin2bin $fp char $MAX_LINE_SIZE $format $fp_new ;#strg
+  }
+}
+if {$argc==1} {
+  if {[b2bMain [lindex $argv 0] l]==1} {
+    file delete [lindex $argv 0]_b
+    b2bMain [lindex $argv 0] b
+    puts "The byte order (endianness) converts from big-endian format to litle-endian format."
+    puts "[lindex $argv 0]_l is made."
+  } else {
+    puts "The byte order (endianness) converts from little-endian format to big-endian format."
+    puts "[lindex $argv 0]_b is made."
+  }
+} else {
+  eval b2bMain $argv
+}

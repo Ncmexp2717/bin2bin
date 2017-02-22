@@ -2,7 +2,7 @@
 #\
 exec tclsh "$0" ${1+"$@"}
 #@(#) bin2bin Ver.1.1 - convert endianness of SCFOUT files.
-#@(#) Copyright (C), 2016, Naoya Yamaguchi.
+#@(#) Copyright (C), 2016-2017, Naoya Yamaguchi.
 #@(#)
 #@(#) Log:
 #@(#)    2016/03/17 Ver.1.0 Released by Naoya Yamaguchi.
